@@ -31,7 +31,7 @@ use Doctrine\ORM\QueryBuilder;
  *
  * @final
  */
-class NumericFilter extends AbstractContextAwareFilter
+class NumericFilter extends AbstractContextAwareFilter implements QueryExpressionGeneratorInterface
 {
     use NumericFilterTrait;
 
@@ -58,12 +58,12 @@ class NumericFilter extends AbstractContextAwareFilter
             !$this->isPropertyMapped($property, $resourceClass) ||
             !$this->isNumericField($property, $resourceClass)
         ) {
-            return;
+            return null;
         }
 
         $values = $this->normalizeValues($value, $property);
         if (null === $values) {
-            return;
+            return null;
         }
 
         $alias = $queryBuilder->getRootAliases()[0];
@@ -77,12 +77,12 @@ class NumericFilter extends AbstractContextAwareFilter
 
         if (1 === \count($values)) {
             $queryBuilder
-                ->andWhere(sprintf('%s.%s = :%s', $alias, $field, $valueParameter))
                 ->setParameter($valueParameter, $values[0], (string) $this->getDoctrineFieldType($property, $resourceClass));
+            return [sprintf('%s.%s = :%s', $alias, $field, $valueParameter)];
         } else {
             $queryBuilder
-                ->andWhere(sprintf('%s.%s IN (:%s)', $alias, $field, $valueParameter))
                 ->setParameter($valueParameter, $values);
+            return [sprintf('%s.%s IN (:%s)', $alias, $field, $valueParameter)];
         }
     }
 

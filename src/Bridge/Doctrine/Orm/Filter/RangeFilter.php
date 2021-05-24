@@ -25,7 +25,7 @@ use Doctrine\ORM\QueryBuilder;
  *
  * @final
  */
-class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInterface
+class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInterface, QueryExpressionGeneratorInterface
 {
     use RangeFilterTrait;
 
@@ -39,12 +39,12 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
             !$this->isPropertyEnabled($property, $resourceClass) ||
             !$this->isPropertyMapped($property, $resourceClass)
         ) {
-            return;
+            return null;
         }
 
         $values = $this->normalizeValues($values, $property);
         if (null === $values) {
-            return;
+            return null;
         }
 
         $alias = $queryBuilder->getRootAliases()[0];
@@ -54,6 +54,7 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
             [$alias, $field] = $this->addJoinsForNestedProperty($property, $alias, $queryBuilder, $queryNameGenerator, $resourceClass);
         }
 
+        $wheres = [];
         foreach ($values as $operator => $value) {
             $this->addWhere(
                 $queryBuilder,
@@ -61,9 +62,11 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
                 $alias,
                 $field,
                 $operator,
-                $value
+                $value,
+                $wheres
             );
         }
+        return $wheres;
     }
 
     /**
@@ -74,7 +77,7 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
      * @param string $operator
      * @param string $value
      */
-    protected function addWhere(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, $alias, $field, $operator, $value)
+    protected function addWhere(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, $alias, $field, $operator, $value, &$wheres)
     {
         $valueParameter = $queryNameGenerator->generateParameterName($field);
 
@@ -88,15 +91,14 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
                 }
 
                 if ($rangeValue[0] === $rangeValue[1]) {
-                    $queryBuilder
-                        ->andWhere(sprintf('%s.%s = :%s', $alias, $field, $valueParameter))
-                        ->setParameter($valueParameter, $rangeValue[0]);
+                    $wheres[] = sprintf('%s.%s = :%s', $alias, $field, $valueParameter);
+                    $queryBuilder->setParameter($valueParameter, $rangeValue[0]);
 
                     return;
                 }
 
+                $wheres[] = sprintf('%1$s.%2$s BETWEEN :%3$s_1 AND :%3$s_2', $alias, $field, $valueParameter);
                 $queryBuilder
-                    ->andWhere(sprintf('%1$s.%2$s BETWEEN :%3$s_1 AND :%3$s_2', $alias, $field, $valueParameter))
                     ->setParameter(sprintf('%s_1', $valueParameter), $rangeValue[0])
                     ->setParameter(sprintf('%s_2', $valueParameter), $rangeValue[1]);
 
@@ -107,9 +109,8 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
                     return;
                 }
 
-                $queryBuilder
-                    ->andWhere(sprintf('%s.%s > :%s', $alias, $field, $valueParameter))
-                    ->setParameter($valueParameter, $value);
+                $wheres[] = sprintf('%s.%s > :%s', $alias, $field, $valueParameter);
+                $queryBuilder->setParameter($valueParameter, $value);
 
                 break;
             case self::PARAMETER_GREATER_THAN_OR_EQUAL:
@@ -118,9 +119,8 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
                     return;
                 }
 
-                $queryBuilder
-                    ->andWhere(sprintf('%s.%s >= :%s', $alias, $field, $valueParameter))
-                    ->setParameter($valueParameter, $value);
+                $wheres[] = sprintf('%s.%s >= :%s', $alias, $field, $valueParameter);
+                $queryBuilder->setParameter($valueParameter, $value);
 
                 break;
             case self::PARAMETER_LESS_THAN:
@@ -129,9 +129,8 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
                     return;
                 }
 
-                $queryBuilder
-                    ->andWhere(sprintf('%s.%s < :%s', $alias, $field, $valueParameter))
-                    ->setParameter($valueParameter, $value);
+                $wheres[] = sprintf('%s.%s < :%s', $alias, $field, $valueParameter);
+                $queryBuilder->setParameter($valueParameter, $value);
 
                 break;
             case self::PARAMETER_LESS_THAN_OR_EQUAL:
@@ -140,9 +139,8 @@ class RangeFilter extends AbstractContextAwareFilter implements RangeFilterInter
                     return;
                 }
 
-                $queryBuilder
-                    ->andWhere(sprintf('%s.%s <= :%s', $alias, $field, $valueParameter))
-                    ->setParameter($valueParameter, $value);
+                $wheres[] = sprintf('%s.%s <= :%s', $alias, $field, $valueParameter);
+                $queryBuilder->setParameter($valueParameter, $value);
 
                 break;
         }

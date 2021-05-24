@@ -68,13 +68,32 @@ abstract class AbstractFilter implements FilterInterface
             return;
         }
 
-        foreach ($this->extractProperties($request, $resourceClass) as $property => $value) {
-            $this->filterProperty($property, $value, $queryBuilder, $queryNameGenerator, $resourceClass, $operationName);
+        foreach ($this->generateExpressions($queryBuilder, $queryNameGenerator, $resourceClass, $operationName) as $exp) {
+            $queryBuilder->andWhere($exp);
         }
     }
 
     /**
+     * See ApiPlatform\Core\Bridge\Doctrine\Orm\Filter\QueryExpressionGeneratorInterface::generateExpressions
+     * @returns array Empty for filters that do not implement QueryExpressionGeneratorInterface
+     */
+    public function generateExpressions(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $resourceClass, string $operationName = null, array $context = [])
+    {
+        $result = [];
+        foreach ($this->extractProperties($this->requestStack->getCurrentRequest(), $resourceClass) as $property => $value) {
+            $expressions = $this->filterProperty($property, $value, $queryBuilder, $queryNameGenerator, $resourceClass, $operationName);
+            if ($expressions !== null && $this instanceof QueryExpressionGeneratorInterface) {
+                $result = array_merge($result, $expressions);
+            }
+        }
+        return $result;
+    }
+
+    /**
      * Passes a property through the filter.
+     * @return null|array of Doctrine\ORM\Query\Expr\* or string (DQL)
+     *   null if the filter does nothing with the property
+     *     or itself adds its query expression to $queryBuilder and does not implement QueryExpressionGeneratorInterface
      */
     abstract protected function filterProperty(string $property, $value, QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $resourceClass, string $operationName = null/*, array $context = []*/);
 

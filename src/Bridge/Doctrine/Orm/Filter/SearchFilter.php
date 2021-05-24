@@ -36,7 +36,7 @@ use Symfony\Component\Serializer\NameConverter\NameConverterInterface;
  *
  * @final
  */
-class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInterface
+class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInterface, QueryExpressionGeneratorInterface
 {
     use SearchFilterTrait;
 
@@ -75,7 +75,7 @@ class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInt
             !$this->isPropertyEnabled($property, $resourceClass) ||
             !$this->isPropertyMapped($property, $resourceClass, true)
         ) {
-            return;
+            return null;
         }
 
         $alias = $queryBuilder->getRootAliases()[0];
@@ -83,7 +83,7 @@ class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInt
 
         $values = $this->normalizeValues((array) $value, $property);
         if (null === $values) {
-            return;
+            return null;
         }
 
         $associations = [];
@@ -112,17 +112,15 @@ class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInt
                     'exception' => new InvalidArgumentException(sprintf('Values for field "%s" are not valid according to the doctrine type.', $field)),
                 ]);
 
-                return;
+                return null;
             }
 
-            $this->addWhereByStrategy($strategy, $queryBuilder, $queryNameGenerator, $alias, $field, $values, $caseSensitive);
-
-            return;
+            return [$this->getWhereByStrategy($strategy, $queryBuilder, $queryNameGenerator, $alias, $field, $values, $caseSensitive)];
         }
 
         // metadata doesn't have the field, nor an association on the field
         if (!$metadata->hasAssociation($field)) {
-            return;
+            return null;
         }
 
         $values = array_map([$this, 'getIdFromValue'], $values);
@@ -140,7 +138,7 @@ class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInt
                 'exception' => new InvalidArgumentException(sprintf('Values for field "%s" are not valid according to the doctrine type.', $field)),
             ]);
 
-            return;
+            return null;
         }
 
         $associationAlias = $alias;
@@ -150,7 +148,7 @@ class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInt
             $associationField = $associationFieldIdentifier;
         }
 
-        $this->addWhereByStrategy($strategy, $queryBuilder, $queryNameGenerator, $associationAlias, $associationField, $values, $caseSensitive);
+        return [$this->getWhereByStrategy($strategy, $queryBuilder, $queryNameGenerator, $associationAlias, $associationField, $values, $caseSensitive)];
     }
 
     /**
@@ -158,7 +156,7 @@ class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInt
      *
      * @throws InvalidArgumentException If strategy does not exist
      */
-    protected function addWhereByStrategy(string $strategy, QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $alias, string $field, $values, bool $caseSensitive)
+    protected function getWhereByStrategy(string $strategy, QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $alias, string $field, $values, bool $caseSensitive)
     {
         if (!\is_array($values)) {
             $values = [$values];
@@ -170,18 +168,14 @@ class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInt
 
         if (!$strategy || self::STRATEGY_EXACT === $strategy) {
             if (1 === \count($values)) {
-                $queryBuilder
-                    ->andWhere($queryBuilder->expr()->eq($wrapCase($aliasedField), $wrapCase($valueParameter)))
-                    ->setParameter($valueParameter, $values[0]);
+                $queryBuilder->setParameter($valueParameter, $values[0]);
 
-                return;
+                return $queryBuilder->expr()->eq($wrapCase($aliasedField), $wrapCase($valueParameter));
             }
 
-            $queryBuilder
-                ->andWhere($queryBuilder->expr()->in($wrapCase($aliasedField), $valueParameter))
-                ->setParameter($valueParameter, $caseSensitive ? $values : array_map('strtolower', $values));
+            $queryBuilder->setParameter($valueParameter, $caseSensitive ? $values : array_map('strtolower', $values));
 
-            return;
+            return $queryBuilder->expr()->in($wrapCase($aliasedField), $valueParameter);
         }
 
         $ors = [];
@@ -220,8 +214,8 @@ class SearchFilter extends AbstractContextAwareFilter implements SearchFilterInt
             }
         }
 
-        $queryBuilder->andWhere($queryBuilder->expr()->orX(...$ors));
         array_walk($parameters, [$queryBuilder, 'setParameter']);
+        return $queryBuilder->expr()->orX(...$ors);
     }
 
     /**

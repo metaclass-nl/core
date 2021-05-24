@@ -40,7 +40,7 @@ use Symfony\Component\Serializer\NameConverter\NameConverterInterface;
  *
  * @final
  */
-class ExistsFilter extends AbstractContextAwareFilter implements ExistsFilterInterface
+class ExistsFilter extends AbstractContextAwareFilter implements ExistsFilterInterface, QueryExpressionGeneratorInterface
 {
     use ExistsFilterTrait;
 
@@ -51,22 +51,24 @@ class ExistsFilter extends AbstractContextAwareFilter implements ExistsFilterInt
         $this->existsParameterName = $existsParameterName;
     }
 
-    /**
-     * {@inheritdoc}
-     */
-    public function apply(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $resourceClass, string $operationName = null, array $context = [])
+    /** {@inheritdoc} */
+    public function generateExpressions(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $resourceClass, string $operationName = null, array $context = [])
     {
         if (!\is_array($context['filters'][$this->existsParameterName] ?? null)) {
             $context['exists_deprecated_syntax'] = true;
-            parent::apply($queryBuilder, $queryNameGenerator, $resourceClass, $operationName, $context);
-
-            return;
+            return parent::generateExpressions($queryBuilder, $queryNameGenerator, $resourceClass, $operationName, $context);
         }
 
+        $result = [];
         foreach ($context['filters'][$this->existsParameterName] as $property => $value) {
-            $this->filterProperty($this->denormalizePropertyName($property), $value, $queryBuilder, $queryNameGenerator, $resourceClass, $operationName, $context);
+            $expressions = $this->filterProperty($this->denormalizePropertyName($property), $value, $queryBuilder, $queryNameGenerator, $resourceClass, $operationName, $context);
+            if ($expressions !== null) {
+                $result = array_merge($result, $expressions);
+            }
         }
+        return $result;
     }
+
 
     /**
      * {@inheritdoc}
@@ -91,12 +93,12 @@ class ExistsFilter extends AbstractContextAwareFilter implements ExistsFilterInt
             !$this->isPropertyMapped($property, $resourceClass, true) ||
             !$this->isNullableField($property, $resourceClass)
         ) {
-            return;
+            return null;
         }
 
         $value = $this->normalizeValue($value, $property);
         if (null === $value) {
-            return;
+            return null;
         }
 
         $alias = $queryBuilder->getRootAliases()[0];
@@ -110,30 +112,20 @@ class ExistsFilter extends AbstractContextAwareFilter implements ExistsFilterInt
 
         if ($metadata->hasAssociation($field)) {
             if ($metadata->isCollectionValuedAssociation($field)) {
-                $queryBuilder
-                    ->andWhere(sprintf('%s.%s %s EMPTY', $alias, $field, $value ? 'IS NOT' : 'IS'));
-
-                return;
+                return [sprintf('%s.%s %s EMPTY', $alias, $field, $value ? 'IS NOT' : 'IS')];
             }
 
             if ($metadata->isAssociationInverseSide($field)) {
                 $alias = QueryBuilderHelper::addJoinOnce($queryBuilder, $queryNameGenerator, $alias, $field, Join::LEFT_JOIN);
 
-                $queryBuilder
-                    ->andWhere(sprintf('%s %s NULL', $alias, $value ? 'IS NOT' : 'IS'));
-
-                return;
+                return [sprintf('%s %s NULL', $alias, $value ? 'IS NOT' : 'IS')];
             }
 
-            $queryBuilder
-                ->andWhere(sprintf('%s.%s %s NULL', $alias, $field, $value ? 'IS NOT' : 'IS'));
-
-            return;
+            return [sprintf('%s.%s %s NULL', $alias, $field, $value ? 'IS NOT' : 'IS')];
         }
 
         if ($metadata->hasField($field)) {
-            $queryBuilder
-                ->andWhere(sprintf('%s.%s %s NULL', $alias, $field, $value ? 'IS NOT' : 'IS'));
+            return [sprintf('%s.%s %s NULL', $alias, $field, $value ? 'IS NOT' : 'IS')];
         }
     }
 

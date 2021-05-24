@@ -28,7 +28,7 @@ use Doctrine\ORM\QueryBuilder;
  *
  * @final
  */
-class DateFilter extends AbstractContextAwareFilter implements DateFilterInterface
+class DateFilter extends AbstractContextAwareFilter implements DateFilterInterface, QueryExpressionGeneratorInterface
 {
     use DateFilterTrait;
 
@@ -55,7 +55,7 @@ class DateFilter extends AbstractContextAwareFilter implements DateFilterInterfa
             !$this->isPropertyMapped($property, $resourceClass) ||
             !$this->isDateField($property, $resourceClass)
         ) {
-            return;
+            return null;
         }
 
         $alias = $queryBuilder->getRootAliases()[0];
@@ -68,10 +68,7 @@ class DateFilter extends AbstractContextAwareFilter implements DateFilterInterfa
         $nullManagement = $this->properties[$property] ?? null;
         $type = (string) $this->getDoctrineFieldType($property, $resourceClass);
 
-        if (self::EXCLUDE_NULL === $nullManagement) {
-            $queryBuilder->andWhere($queryBuilder->expr()->isNotNull(sprintf('%s.%s', $alias, $field)));
-        }
-
+        $wheres = [];
         if (isset($values[self::PARAMETER_BEFORE])) {
             $this->addWhere(
                 $queryBuilder,
@@ -81,7 +78,8 @@ class DateFilter extends AbstractContextAwareFilter implements DateFilterInterfa
                 self::PARAMETER_BEFORE,
                 $values[self::PARAMETER_BEFORE],
                 $nullManagement,
-                $type
+                $type,
+                $wheres
             );
         }
 
@@ -94,7 +92,8 @@ class DateFilter extends AbstractContextAwareFilter implements DateFilterInterfa
                 self::PARAMETER_STRICTLY_BEFORE,
                 $values[self::PARAMETER_STRICTLY_BEFORE],
                 $nullManagement,
-                $type
+                $type,
+                $wheres
             );
         }
 
@@ -107,7 +106,8 @@ class DateFilter extends AbstractContextAwareFilter implements DateFilterInterfa
                 self::PARAMETER_AFTER,
                 $values[self::PARAMETER_AFTER],
                 $nullManagement,
-                $type
+                $type,
+                $wheres
             );
         }
 
@@ -120,17 +120,20 @@ class DateFilter extends AbstractContextAwareFilter implements DateFilterInterfa
                 self::PARAMETER_STRICTLY_AFTER,
                 $values[self::PARAMETER_STRICTLY_AFTER],
                 $nullManagement,
-                $type
+                $type,
+                $wheres
             );
         }
+
+        return $wheres;
     }
 
     /**
-     * Adds the where clause according to the chosen null management.
+     * Adds a where clause according to the chosen null management.
      *
      * @param string|DBALType $type
      */
-    protected function addWhere(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $alias, string $field, string $operator, $value, string $nullManagement = null, $type = null)
+    protected function addWhere(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $alias, string $field, string $operator, $value, string $nullManagement = null, $type = null, &$wheres)
     {
         $type = (string) $type;
         $value = $this->normalizeValue($value, $operator);
@@ -151,6 +154,8 @@ class DateFilter extends AbstractContextAwareFilter implements DateFilterInterfa
         }
 
         $valueParameter = $queryNameGenerator->generateParameterName($field);
+        $queryBuilder->setParameter($valueParameter, $value, $type);
+
         $operatorValue = [
             self::PARAMETER_BEFORE => '<=',
             self::PARAMETER_STRICTLY_BEFORE => '<',
@@ -159,24 +164,27 @@ class DateFilter extends AbstractContextAwareFilter implements DateFilterInterfa
         ];
         $baseWhere = sprintf('%s.%s %s :%s', $alias, $field, $operatorValue[$operator], $valueParameter);
 
-        if (null === $nullManagement || self::EXCLUDE_NULL === $nullManagement) {
-            $queryBuilder->andWhere($baseWhere);
+        if (null === $nullManagement) {
+            $wheres[] = $baseWhere;
+        } elseif (self::EXCLUDE_NULL === $nullManagement) {
+            $wheres[] = $queryBuilder->expr()->andX(
+                $queryBuilder->expr()->isNotNull(sprintf('%s.%s', $alias, $field)),
+                $baseWhere
+            );
         } elseif (
             (self::INCLUDE_NULL_BEFORE === $nullManagement && \in_array($operator, [self::PARAMETER_BEFORE, self::PARAMETER_STRICTLY_BEFORE], true)) ||
             (self::INCLUDE_NULL_AFTER === $nullManagement && \in_array($operator, [self::PARAMETER_AFTER, self::PARAMETER_STRICTLY_AFTER], true)) ||
             (self::INCLUDE_NULL_BEFORE_AND_AFTER === $nullManagement && \in_array($operator, [self::PARAMETER_AFTER, self::PARAMETER_STRICTLY_AFTER, self::PARAMETER_BEFORE, self::PARAMETER_STRICTLY_BEFORE], true))
         ) {
-            $queryBuilder->andWhere($queryBuilder->expr()->orX(
+            $wheres[] = $queryBuilder->expr()->orX(
                 $baseWhere,
                 $queryBuilder->expr()->isNull(sprintf('%s.%s', $alias, $field))
-            ));
+            );
         } else {
-            $queryBuilder->andWhere($queryBuilder->expr()->andX(
+            $wheres[] = $queryBuilder->expr()->andX(
                 $baseWhere,
                 $queryBuilder->expr()->isNotNull(sprintf('%s.%s', $alias, $field))
-            ));
+            );
         }
-
-        $queryBuilder->setParameter($valueParameter, $value, $type);
     }
 }

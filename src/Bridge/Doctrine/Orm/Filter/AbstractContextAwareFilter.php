@@ -29,8 +29,26 @@ abstract class AbstractContextAwareFilter extends AbstractFilter implements Cont
             return;
         }
 
-        foreach ($context['filters'] as $property => $value) {
-            $this->filterProperty($this->denormalizePropertyName($property), $value, $queryBuilder, $queryNameGenerator, $resourceClass, $operationName, $context);
+        foreach ($this->generateExpressions($queryBuilder, $queryNameGenerator, $resourceClass, $operationName, $context) as $exp) {
+            $queryBuilder->andWhere($exp);
         }
     }
+
+    /** {@inheritdoc} */
+    public function generateExpressions(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $resourceClass, string $operationName = null, array $context = [])
+    {
+        if (!isset($context['filters']) || !\is_array($context['filters'])) {
+            return parent::generateExpressions($queryBuilder, $queryNameGenerator, $resourceClass, $operationName, $context);
+        }
+
+        $result = [];
+        foreach ($context['filters'] as $property => $value) {
+            $expressions = $this->filterProperty($this->denormalizePropertyName($property), $value, $queryBuilder, $queryNameGenerator, $resourceClass, $operationName, $context);
+            if ($expressions !== null && $this instanceof QueryExpressionGeneratorInterface) {
+                $result = array_merge($result, $expressions);
+            }
+        }
+        return $result;
+    }
+
 }

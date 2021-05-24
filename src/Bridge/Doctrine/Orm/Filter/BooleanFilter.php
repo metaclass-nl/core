@@ -32,7 +32,7 @@ use Doctrine\ORM\QueryBuilder;
  *
  * @final
  */
-class BooleanFilter extends AbstractContextAwareFilter
+class BooleanFilter extends AbstractContextAwareFilter implements QueryExpressionGeneratorInterface
 {
     use BooleanFilterTrait;
 
@@ -50,12 +50,12 @@ class BooleanFilter extends AbstractContextAwareFilter
             !$this->isPropertyMapped($property, $resourceClass) ||
             !$this->isBooleanField($property, $resourceClass)
         ) {
-            return;
+            return null;
         }
 
         $value = $this->normalizeValue($value, $property);
         if (null === $value) {
-            return;
+            return null;
         }
 
         $alias = $queryBuilder->getRootAliases()[0];
@@ -67,8 +67,8 @@ class BooleanFilter extends AbstractContextAwareFilter
 
         $valueParameter = $queryNameGenerator->generateParameterName($field);
 
-        $queryBuilder
-            ->andWhere(sprintf('%s.%s = :%s', $alias, $field, $valueParameter))
-            ->setParameter($valueParameter, $value);
+        $queryBuilder->setParameter($valueParameter, $value);
+
+        return [sprintf('%s.%s = :%s', $alias, $field, $valueParameter)];
     }
 }
