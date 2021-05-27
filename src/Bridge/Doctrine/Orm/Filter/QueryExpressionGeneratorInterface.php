@@ -34,7 +34,7 @@ interface QueryExpressionGeneratorInterface
      *
      * Adds parameters and joins to $queryBuilder.
      * Caller of this function is responsable for adding the generated
-     * expressions to $queryBuilder so that the parameters in the query wo;;
+     * expressions to $queryBuilder so that the parameters in the query will
      * correspond 1 to 1 with the parameters that where added by this function.
      * In practice this comes down to adding EACH expression to $queryBuilder
      * once and only once.
